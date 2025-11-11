@@ -16,24 +16,26 @@ import (
 )
 
 type Downloader struct {
-	Client *http.Client //Every downloader has a http client over which the downloads happen
+	Client                   *http.Client //Every downloader has a http client over which the downloads happen
+	bytesDownloadedPerSecond []int64
+	mu                       sync.Mutex
 }
 
 func NewDownloader() *Downloader {
 	client := http.Client{
 		Timeout: 0,
 	}
-	return &Downloader{&client}
+	return &Downloader{Client: &client}
 }
 
-func (d *Downloader) Download(ctx context.Context, rawurl, outPath string, concurrent int) error {
+func (d *Downloader) Download(ctx context.Context, rawurl, outPath string, concurrent int, verbose bool) error {
 	if concurrent > 1 {
-		return d.concurrentDownload(ctx, rawurl, outPath, concurrent)
+		return d.concurrentDownload(ctx, rawurl, outPath, concurrent, verbose)
 	}
-	return d.singleDownload(ctx, rawurl, outPath)
+	return d.singleDownload(ctx, rawurl, outPath, verbose)
 }
 
-func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string) error {
+func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string, verbose bool) error {
 	parsed, err := url.Parse(rawurl) //Parses the URL into parts
 	if err != nil {
 		return err
@@ -130,7 +132,7 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string)
 		// progress reporting periodically (every 200ms or on finish)
 		now := time.Now()
 		if now.Sub(lastReport) > 200*time.Millisecond || readErr == io.EOF {
-			printProgress(written, total, start)
+			d.printProgress(written, total, start, verbose)
 			lastReport = now
 		}
 
@@ -180,11 +182,13 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string)
 		return fmt.Errorf("rename failed: %v", renameErr)
 	}
 
-	fmt.Fprintf(os.Stderr, "\nDownloaded %s\n", destPath)
+	elapsed := time.Since(start)
+	speed := float64(written) / 1024.0 / elapsed.Seconds() // KiB/s
+	fmt.Fprintf(os.Stderr, "\nDownloaded %s in %s (%.1f KiB/s)\n", destPath, elapsed.Round(time.Second), speed)
 	return nil
 }
 
-func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath string, concurrent int) error {
+func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath string, concurrent int, verbose bool) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
 	if err != nil {
 		return err
@@ -198,7 +202,7 @@ func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath str
 
 	if resp.Header.Get("Accept-Ranges") != "bytes" {
 		fmt.Println("Server does not support concurrent download, falling back to single thread")
-		return d.singleDownload(ctx, rawurl, outPath)
+		return d.singleDownload(ctx, rawurl, outPath, verbose)
 	}
 
 	totalSize, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
@@ -223,7 +227,7 @@ func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath str
 
 		go func(i int, start, end int64) {
 			defer wg.Done()
-			err := d.downloadChunk(ctx, rawurl, outPath, i, start, end, &mu, &written, totalSize, startTime)
+			err := d.downloadChunk(ctx, rawurl, outPath, i, start, end, &mu, &written, totalSize, startTime, verbose)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "\nError downloading chunk %d: %v\n", i, err)
 			}
@@ -254,11 +258,13 @@ func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath str
 		os.Remove(partFileName)
 	}
 
-	fmt.Fprintf(os.Stderr, "\nDownloaded %s\n", outPath)
+	elapsed := time.Since(startTime)
+	speed := float64(totalSize) / 1024.0 / elapsed.Seconds() // KiB/s
+	fmt.Fprintf(os.Stderr, "\nDownloaded %s in %s (%.1f KiB/s)\n", outPath, elapsed.Round(time.Second), speed)
 	return nil
 }
 
-func (d *Downloader) downloadChunk(ctx context.Context, rawurl, outPath string, index int, start, end int64, mu *sync.Mutex, written *int64, totalSize int64, startTime time.Time) error {
+func (d *Downloader) downloadChunk(ctx context.Context, rawurl, outPath string, index int, start, end int64, mu *sync.Mutex, written *int64, totalSize int64, startTime time.Time, verbose bool) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
 	if err != nil {
@@ -291,7 +297,7 @@ func (d *Downloader) downloadChunk(ctx context.Context, rawurl, outPath string, 
 			}
 			mu.Lock()
 			*written += int64(n)
-			printProgress(*written, totalSize, startTime)
+			d.printProgress(*written, totalSize, startTime, verbose)
 			mu.Unlock()
 		}
 		if err == io.EOF {
@@ -304,12 +310,36 @@ func (d *Downloader) downloadChunk(ctx context.Context, rawurl, outPath string, 
 	return nil
 }
 
-func printProgress(written, total int64, start time.Time) {
+func (d *Downloader) printProgress(written, total int64, start time.Time, verbose bool) {
 	elapsed := time.Since(start).Seconds()
 	speed := float64(written) / 1024.0 / elapsed // KiB/s
+
+	d.mu.Lock()
+	d.bytesDownloadedPerSecond = append(d.bytesDownloadedPerSecond, int64(speed))
+	if len(d.bytesDownloadedPerSecond) > 30 {
+		d.bytesDownloadedPerSecond = d.bytesDownloadedPerSecond[1:]
+	}
+
+	var avgSpeed float64
+	var totalSpeed int64
+	for _, s := range d.bytesDownloadedPerSecond {
+		totalSpeed += s
+	}
+	if len(d.bytesDownloadedPerSecond) > 0 {
+		avgSpeed = float64(totalSpeed) / float64(len(d.bytesDownloadedPerSecond))
+	}
+	d.mu.Unlock()
+
+	eta := "N/A"
+	if total > 0 && avgSpeed > 0 {
+		remainingBytes := total - written
+		remainingSeconds := float64(remainingBytes) / (avgSpeed * 1024)
+		eta = time.Duration(remainingSeconds * float64(time.Second)).Round(time.Second).String()
+	}
+
 	if total > 0 {
 		pct := float64(written) / float64(total) * 100.0
-		fmt.Fprintf(os.Stderr, "\r%.2f%% %d/%d bytes (%.1f KiB/s)", pct, written, total, speed)
+		fmt.Fprintf(os.Stderr, "\r%.2f%% %d/%d bytes (%.1f KiB/s) ETA: %s", pct, written, total, speed, eta)
 	} else {
 		fmt.Fprintf(os.Stderr, "\r%d bytes (%.1f KiB/s)", written, speed)
 	}
