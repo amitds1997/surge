@@ -7,6 +7,7 @@ import (
 	"surge/internal/downloader"
 	"surge/internal/messages"
 
+	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -138,6 +139,17 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.inputs[m.focusedInput], cmd = m.inputs[m.focusedInput].Update(msg)
 			return m, cmd
 		}
+	}
+
+	// Propagate messages to progress bars
+	for i := range m.downloads {
+		var cmd tea.Cmd
+		var newModel tea.Model
+		newModel, cmd = m.downloads[i].progress.Update(msg)
+		if p, ok := newModel.(progress.Model); ok {
+			m.downloads[i].progress = p
+		}
+		cmds = append(cmds, cmd)
 	}
 
 	return m, tea.Batch(cmds...)
