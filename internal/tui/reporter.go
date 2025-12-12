@@ -9,17 +9,14 @@ import (
 )
 
 const (
-	DefaultPollInterval   = 150 * time.Millisecond
-	DeltaPercentThreshold = 0.003 // 0.3% change threshold
-	SpeedSmoothingAlpha   = 0.3   // EMA smoothing factor
+	DefaultPollInterval = 150 * time.Millisecond
+	SpeedSmoothingAlpha = 0.3 // EMA smoothing factor
 )
 
 type ProgressReporter struct {
 	state        *downloader.ProgressState
 	pollInterval time.Duration
 	lastSpeed    float64
-	lastPercent  float64
-	lastReportAt time.Time
 }
 
 func NewProgressReporter(state *downloader.ProgressState) *ProgressReporter {
@@ -27,7 +24,6 @@ func NewProgressReporter(state *downloader.ProgressState) *ProgressReporter {
 		state:        state,
 		pollInterval: DefaultPollInterval,
 		lastSpeed:    0,
-		lastPercent:  0,
 	}
 }
 
@@ -55,20 +51,6 @@ func (r *ProgressReporter) PollCmd() tea.Cmd {
 		// Get current progress
 		downloaded, total, elapsed, connections := r.state.GetProgress()
 
-		// Calculate current percent
-		var currentPercent float64
-		if total > 0 {
-			currentPercent = float64(downloaded) / float64(total)
-		}
-
-		// Delta filtering: skip if change is too small (unless first update)
-		delta := currentPercent - r.lastPercent
-		if r.lastPercent > 0 && delta < DeltaPercentThreshold && delta >= 0 {
-			// Still need to continue polling, return a tick message
-			return progressTickMsg{downloadID: r.state.ID}
-		}
-		r.lastPercent = currentPercent
-
 		// Calculate speed with EMA smoothing
 		var instantSpeed float64
 		if elapsed.Seconds() > 0 {
@@ -89,9 +71,4 @@ func (r *ProgressReporter) PollCmd() tea.Cmd {
 			ActiveConnections: int(connections),
 		}
 	})
-}
-
-// progressTickMsg is an internal message to continue polling without UI update
-type progressTickMsg struct {
-	downloadID int
 }

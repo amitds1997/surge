@@ -15,6 +15,8 @@ import (
 	"surge/internal/utils"
 
 	"surge/internal/messages"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 const (
@@ -50,6 +52,29 @@ var bufPool = sync.Pool{
 		buf := make([]byte, WorkerBuffer)
 		return &buf
 	},
+}
+
+// ConcurrentDownloader handles multi-connection downloads
+type ConcurrentDownloader struct {
+	ProgressChan chan<- tea.Msg // Channel for events (start/complete/error)
+	ID           int            // Download ID
+	State        *ProgressState // Shared state for TUI polling
+}
+
+func (d *ConcurrentDownloader) SetProgressChan(ch chan<- tea.Msg) {
+	d.ProgressChan = ch
+}
+
+func (d *ConcurrentDownloader) SetID(id int) {
+	d.ID = id
+}
+
+func (d *ConcurrentDownloader) SetProgressState(state *ProgressState) {
+	d.State = state
+}
+
+func NewConcurrentDownloader() *ConcurrentDownloader {
+	return &ConcurrentDownloader{}
 }
 
 // Task represents a byte range to download
@@ -253,7 +278,7 @@ func newConcurrentClient() *http.Client {
 	}
 }
 
-func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath string, verbose bool, md5sum, sha256sum string) (err error) {
+func (d *ConcurrentDownloader) Download(ctx context.Context, rawurl, outPath string, verbose bool, md5sum, sha256sum string) (err error) {
 	// Create tuned HTTP client for concurrent downloads
 	client := newConcurrentClient()
 
@@ -275,13 +300,6 @@ func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath str
 
 	// 2. Get file size
 	contentLength := resp.Header.Get("Content-Length")
-	if contentLength == "" {
-		if verbose {
-			fmt.Println("Content-Length unknown, falling back to single download")
-		}
-		return d.singleDownload(ctx, rawurl, outPath, verbose)
-	}
-
 	fileSize, err := strconv.ParseInt(contentLength, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid Content-Length: %w", err)
@@ -414,7 +432,7 @@ func (d *Downloader) concurrentDownload(ctx context.Context, rawurl, outPath str
 }
 
 // worker downloads tasks from the queue
-func (d *Downloader) worker(ctx context.Context, id int, rawurl string, file *os.File, queue *TaskQueue, downloaded *int64, totalSize int64, startTime time.Time, verbose bool, client *http.Client) error {
+func (d *ConcurrentDownloader) worker(ctx context.Context, id int, rawurl string, file *os.File, queue *TaskQueue, downloaded *int64, totalSize int64, startTime time.Time, verbose bool, client *http.Client) error {
 	// Get pooled buffer
 	bufPtr := bufPool.Get().(*[]byte)
 	defer bufPool.Put(bufPtr)
@@ -438,7 +456,7 @@ func (d *Downloader) worker(ctx context.Context, id int, rawurl string, file *os
 }
 
 // downloadTask downloads a single byte range and writes to file at offset
-func (d *Downloader) downloadTask(ctx context.Context, rawurl string, file *os.File, task Task, buf []byte, downloaded *int64, totalSize int64, startTime time.Time, verbose bool, client *http.Client) error {
+func (d *ConcurrentDownloader) downloadTask(ctx context.Context, rawurl string, file *os.File, task Task, buf []byte, downloaded *int64, totalSize int64, startTime time.Time, verbose bool, client *http.Client) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawurl, nil)
 	if err != nil {
 		return err
@@ -471,8 +489,7 @@ func (d *Downloader) downloadTask(ctx context.Context, rawurl string, file *os.F
 			offset += int64(n)
 
 			// Update progress
-			newTotal := atomic.AddInt64(downloaded, int64(n))
-			d.printProgress(newTotal, totalSize, startTime, verbose, 0)
+			atomic.AddInt64(downloaded, int64(n))
 		}
 		if readErr == io.EOF {
 			break

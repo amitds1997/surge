@@ -52,15 +52,6 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case progressTickMsg:
-		// Internal tick - continue polling without UI update
-		for _, d := range m.downloads {
-			if d.ID == msg.downloadID && !d.done {
-				cmds = append(cmds, d.reporter.PollCmd())
-				break
-			}
-		}
-
 	case messages.DownloadCompleteMsg:
 		for _, d := range m.downloads {
 			if d.ID == msg.DownloadID {
@@ -206,19 +197,17 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func StartDownloadCmd(sub chan tea.Msg, id int, url, path string, state *downloader.ProgressState) tea.Cmd {
 	return func() tea.Msg {
-		d := downloader.NewDownloader()
-		d.SetProgressChan(sub)
-		d.SetID(id)
 
 		ctx := context.Background()
-
 		go func() {
-			err := d.Download(ctx, url, path, 1, false, "", "")
+			err := downloader.TUIDownload(ctx, url, path, false, "", "", sub, id, state)
 			if err != nil {
 				state.SetError(err)
 				sub <- messages.DownloadErrorMsg{DownloadID: id, Err: err}
+				return
 			} else {
 				state.Done.Store(true)
+				sub <- messages.DownloadCompleteMsg{DownloadID: id, Elapsed: time.Since(state.StartTime), Total: state.TotalSize}
 			}
 		}()
 

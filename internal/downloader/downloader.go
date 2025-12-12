@@ -22,37 +22,34 @@ import (
 	"surge/internal/messages"
 )
 
-type Downloader struct {
-	Client                   *http.Client //Every downloader has a http client over which the downloads happen
-	bytesDownloadedPerSecond []int64
-	mu                       sync.Mutex
-	ProgressChan             chan<- tea.Msg // Use tea.Msg generic channel to send different message types
-	ID                       int
+// SingleDownloader handles single-threaded downloads
+type SingleDownloader struct {
+	Client       *http.Client
+	mu           sync.Mutex
+	ProgressChan chan<- tea.Msg // Channel for events (start/complete/error)
+	ID           int            // Download ID
+	State        *ProgressState // Shared state for TUI polling
 }
 
-func (d *Downloader) SetProgressChan(ch chan<- tea.Msg) {
+func (d *SingleDownloader) SetProgressChan(ch chan<- tea.Msg) {
 	d.ProgressChan = ch
 }
 
-func (d *Downloader) SetID(id int) {
+func (d *SingleDownloader) SetID(id int) {
 	d.ID = id
 }
 
-func NewDownloader() *Downloader {
-	client := http.Client{
-		Timeout: 0,
-	}
-	return &Downloader{Client: &client}
+func (d *SingleDownloader) SetProgressState(state *ProgressState) {
+	d.State = state
 }
 
-func (d *Downloader) Download(ctx context.Context, rawurl, outPath string, concurrent int, verbose bool, md5sum, sha256sum string) error {
-	if concurrent > 1 {
-		return d.concurrentDownload(ctx, rawurl, outPath, verbose, md5sum, sha256sum)
+func NewSingleDownloader() *SingleDownloader {
+	return &SingleDownloader{
+		Client: &http.Client{Timeout: 0},
 	}
-	return d.singleDownload(ctx, rawurl, outPath, verbose)
 }
 
-func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string, verbose bool) (err error) {
+func (d *SingleDownloader) Download(ctx context.Context, rawurl, outPath string, verbose bool) (err error) {
 	parsed, err := url.Parse(rawurl) //Parses the URL into parts
 	if err != nil {
 		return err
@@ -99,6 +96,11 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string,
 		totalSize, _ = strconv.ParseInt(contentLength, 10, 64)
 	}
 
+	// Update shared state with total size
+	if d.State != nil {
+		d.State.SetTotalSize(totalSize)
+	}
+
 	// Send DownloadStartedMsg
 	if d.ProgressChan != nil {
 		d.ProgressChan <- messages.DownloadStartedMsg{
@@ -132,7 +134,6 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string,
 	// Copy response body to file efficiently
 	var written int64
 	buf := make([]byte, 32*1024)
-	lastUpdate := time.Now()
 
 	for {
 		nr, er := resp.Body.Read(buf)
@@ -140,6 +141,10 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string,
 			nw, ew := tmpFile.Write(buf[0:nr])
 			if nw > 0 {
 				written += int64(nw)
+				// Update shared state for TUI polling
+				if d.State != nil {
+					d.State.Downloaded.Store(written)
+				}
 			}
 			if ew != nil {
 				err = ew
@@ -150,11 +155,7 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string,
 				break
 			}
 
-			// Update progress every 100ms
-			if time.Since(lastUpdate) > 100*time.Millisecond {
-				d.printProgress(written, totalSize, start, verbose, 1)
-				lastUpdate = time.Now()
-			}
+			// Progress is now handled by TUI polling d.State.Downloaded
 		}
 		if er != nil {
 			if er != io.EOF {
@@ -163,8 +164,7 @@ func (d *Downloader) singleDownload(ctx context.Context, rawurl, outPath string,
 			break
 		}
 	}
-	// Final update
-	d.printProgress(written, totalSize, start, verbose, 1)
+	// Final update handled by TUI polling
 
 	if err != nil {
 		return fmt.Errorf("copy failed: %w", err)
