@@ -54,6 +54,7 @@ type DownloadConfig struct {
 	URL        string
 	OutputPath string
 	ID         int
+	Filename   string
 	Verbose    bool
 	MD5Sum     string
 	SHA256Sum  string

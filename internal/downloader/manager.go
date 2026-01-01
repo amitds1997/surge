@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,7 +32,7 @@ type ProbeResult struct {
 }
 
 // probeServer sends GET with Range: bytes=0-0 to determine server capabilities
-func probeServer(ctx context.Context, rawurl string) (*ProbeResult, error) {
+func probeServer(ctx context.Context, rawurl string, filenameHint string) (*ProbeResult, error) {
 	utils.Debug("Probing server: %s", rawurl)
 
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
@@ -90,38 +89,25 @@ func probeServer(ctx context.Context, rawurl string) (*ProbeResult, error) {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	// Determine filename from URL and headers
-	result.Filename = extractFilename(rawurl, resp)
+	// Determine filename using strengthened logic
+	name, _, err := utils.DetermineFilename(rawurl, resp, false)
+	if err != nil {
+		utils.Debug("Error determining filename: %v", err)
+		name = "download.bin"
+	}
+
+	if filenameHint != "" {
+		result.Filename = filenameHint
+	} else {
+		result.Filename = name
+	}
+
 	result.ContentType = resp.Header.Get("Content-Type")
 
 	utils.Debug("Probe complete - filename: %s, size: %d, range: %v",
 		result.Filename, result.FileSize, result.SupportsRange)
 
 	return result, nil
-}
-
-// extractFilename gets filename from Content-Disposition or URL
-func extractFilename(rawurl string, resp *http.Response) string {
-	// Try Content-Disposition header first
-	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
-		if idx := strings.Index(cd, "filename="); idx != -1 {
-			name := cd[idx+9:]
-			name = strings.Trim(name, `"'`)
-			if name != "" {
-				return filepath.Base(name)
-			}
-		}
-	}
-
-	// Fall back to URL path
-	if parsed, err := url.Parse(rawurl); err == nil {
-		name := filepath.Base(parsed.Path)
-		if name != "" && name != "." && name != "/" {
-			return name
-		}
-	}
-
-	return "download.bin"
 }
 
 // TUIDownload is the main entry point for TUI downloads
@@ -134,7 +120,7 @@ func TUIDownload(ctx context.Context, cfg DownloadConfig) error {
 	}()
 
 	// Probe server once to get all metadata
-	probe, err := probeServer(ctx, cfg.URL)
+	probe, err := probeServer(ctx, cfg.URL, cfg.Filename)
 	if err != nil {
 		utils.Debug("Probe failed: %v", err)
 		return err

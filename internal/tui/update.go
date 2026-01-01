@@ -31,6 +31,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			URL:        msg.URL,
 			OutputPath: path,
 			ID:         nextID,
+			Filename:   msg.Filename,
 			Verbose:    false,
 			ProgressCh: m.progressChan,
 			State:      newDownload.state,
