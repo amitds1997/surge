@@ -8,3 +8,5 @@ worker_speeds.png
 *.json
 logs/
 downloads/
+*.pyc
+grab_bench*
