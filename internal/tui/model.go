@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/filepicker"
+	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"surge/internal/downloader"
 )
@@ -75,6 +77,9 @@ type RootModel struct {
 
 	// File picker for directory selection
 	filepicker filepicker.Model
+
+	// Bubbles help component
+	help help.Model
 
 	// Bubbles list component for download listing
 	list list.Model
@@ -176,6 +181,11 @@ func InitialRootModel() RootModel {
 	// Initialize the download list
 	downloadList := NewDownloadList(80, 20) // Default size, will be resized on WindowSizeMsg
 
+	// Initialize help
+	helpModel := help.New()
+	helpModel.Styles.ShortKey = lipgloss.NewStyle().Foreground(ColorLightGray)
+	helpModel.Styles.ShortDesc = lipgloss.NewStyle().Foreground(ColorGray)
+
 	return RootModel{
 		downloads:      downloads,
 		NextDownloadID: len(downloads) + 1, // Start after loaded downloads
@@ -183,6 +193,7 @@ func InitialRootModel() RootModel {
 		state:          DashboardState,
 		progressChan:   progressChan,
 		filepicker:     fp,
+		help:           helpModel,
 		list:           downloadList,
 		Pool:           downloader.NewWorkerPool(progressChan),
 		PWD:            pwd,

@@ -45,13 +45,15 @@ func (m RootModel) View() string {
 			"", // Spacer
 			lipgloss.JoinHorizontal(lipgloss.Left, labelStyle.Render("Filename:"), m.inputs[2].View()),
 			"", // Bottom spacer
-			lipgloss.NewStyle().Foreground(ColorLightGray).Render("[Enter] Start  [Esc] Cancel"),
+			"",
+			// Render dynamic help
+			m.help.View(InputKeys),
 		)
 
 		// Apply padding to the content before boxing it
 		paddedContent := lipgloss.NewStyle().Padding(0, 2).Render(content)
 
-		box := renderBtopBox("Add Download", paddedContent, 80, 9, ColorNeonPink, false)
+		box := renderBtopBox("Add Download", paddedContent, 80, 11, ColorNeonPink, false)
 
 		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 	}
@@ -63,7 +65,7 @@ func (m RootModel) View() string {
 			"",
 			m.filepicker.View(),
 			"",
-			lipgloss.NewStyle().Foreground(ColorLightGray).Render("[.] Select Here  [H] Downloads  [Enter] Open  [Esc] Cancel"),
+			m.help.View(FilePickerKeys),
 		)
 
 		paddedContent := lipgloss.NewStyle().Padding(0, 2).Render(pickerContent)
