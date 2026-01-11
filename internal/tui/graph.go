@@ -43,7 +43,10 @@ func renderMultiLineGraph(data []float64, width, height int, maxVal float64, col
 	for i := range rows {
 		rows[i] = make([]string, width)
 		for j := range rows[i] {
-			if i%2 == 0 {
+			if i == height-1 {
+				// Bottom row: solid baseline
+				rows[i][j] = gridStyle.Render("─")
+			} else if i%2 == 0 {
 				rows[i][j] = gridStyle.Render("╌")
 			} else {
 				rows[i][j] = " "

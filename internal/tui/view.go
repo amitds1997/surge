@@ -169,7 +169,7 @@ func (m RootModel) View() string {
 	}
 
 	// Determine Max Speed for scaling
-	maxSpeed := 1.0 // Prevent divide by zero
+	maxSpeed := 0.0
 	topSpeed := 0.0
 	for _, v := range graphData {
 		if v > maxSpeed {
@@ -179,19 +179,29 @@ func (m RootModel) View() string {
 			topSpeed = v
 		}
 	}
-	// Add headroom
-	maxSpeed = maxSpeed * 1.1
-	if maxSpeed >= 5 {
-		maxSpeed = float64(int((maxSpeed+4.99)/5) * 5)
-	} else if maxSpeed >= 1 {
-		maxSpeed = float64(int(maxSpeed + 0.99))
+
+	if maxSpeed == 0 {
+		maxSpeed = 1.0 // Default scale for empty graph
+	} else {
+		// Add headroom
+		maxSpeed = maxSpeed * 1.1
+
+		if maxSpeed < 1.0 {
+			maxSpeed = 1.0
+		}
+
+		if maxSpeed >= 5 {
+			maxSpeed = float64(int((maxSpeed+4.99)/5) * 5)
+		} else {
+			maxSpeed = float64(int(maxSpeed + 0.99))
+		}
 	}
 
 	// Calculate Available Height for the Graph
-	// graphHeight - Borders (2) - title area (1)
-	graphContentHeight := graphHeight - 3
-	if graphContentHeight < 1 {
-		graphContentHeight = 1
+	// graphHeight - Borders (2) - title area (1) - top/bottom padding (2)
+	graphContentHeight := graphHeight - 5
+	if graphContentHeight < 3 {
+		graphContentHeight = 3
 	}
 
 	// Get current speed and calculate total downloaded
@@ -234,7 +244,7 @@ func (m RootModel) View() string {
 	statsBox := statsBoxStyle.Render(statsContent)
 
 	// Graph takes remaining width after stats box
-	axisWidth := 5
+	axisWidth := 10                                              // Width for "X.X MB/s" labels
 	graphAreaWidth := rightWidth - statsBoxWidth - axisWidth - 6 // borders + spacing
 	if graphAreaWidth < 10 {
 		graphAreaWidth = 10
@@ -244,34 +254,38 @@ func (m RootModel) View() string {
 	graphVisual := renderMultiLineGraph(graphData, graphAreaWidth, graphContentHeight, maxSpeed, ColorNeonPink, nil)
 
 	// Create Y-axis (right side of graph)
-	axisStyle := lipgloss.NewStyle().Width(axisWidth).Foreground(ColorGray).Align(lipgloss.Right)
-	labelTop := axisStyle.Render(fmt.Sprintf("%.0f", maxSpeed))
-	labelMid := axisStyle.Render(fmt.Sprintf("%.1f", maxSpeed/2))
-	labelBot := axisStyle.Render("0")
+	axisStyle := lipgloss.NewStyle().Width(axisWidth).Foreground(ColorNeonCyan).Align(lipgloss.Right)
+	labelTop := axisStyle.Render(fmt.Sprintf("%.1f MB/s", maxSpeed))
+	labelMid := axisStyle.Render(fmt.Sprintf("%.1f MB/s", maxSpeed/2))
+	labelBot := axisStyle.Render("0 MB/s")
 
 	var axisColumn string
+	// Calculate exact spacing to match graph height
+	// We use manual string concatenation because lipgloss.JoinVertical with explicit newlines
+	// can sometimes add extra height that causes overflow.
 	if graphContentHeight >= 5 {
 		spacesTotal := graphContentHeight - 3
 		spaceTop := spacesTotal / 2
 		spaceBot := spacesTotal - spaceTop
-		axisColumn = lipgloss.JoinVertical(lipgloss.Right,
-			labelTop,
-			strings.Repeat("\n", spaceTop),
-			labelMid,
-			strings.Repeat("\n", spaceBot),
-			labelBot,
-		)
-	} else {
+
+		// Construction: TopLabel + (spaceTop newlines) + MidLabel + (spaceBot newlines) + BotLabel
+		// Note: We use one newline to separate labels, plus spaceTop/Bot extra newlines.
+		// Example: Top\n\nMid -> 1 empty line gap (spaceTop=1)
+
+		axisColumn = labelTop + "\n" + strings.Repeat("\n", spaceTop) +
+			labelMid + "\n" + strings.Repeat("\n", spaceBot) +
+			labelBot
+
+	} else if graphContentHeight >= 3 {
 		spaces := graphContentHeight - 2
-		if spaces < 0 {
-			spaces = 0
-		}
-		axisColumn = lipgloss.JoinVertical(lipgloss.Right,
-			labelTop,
-			strings.Repeat("\n", spaces),
-			labelBot,
-		)
+		axisColumn = labelTop + "\n" + strings.Repeat("\n", spaces) + labelBot
+	} else {
+		// Very small height - just show top and bottom
+		axisColumn = labelTop + "\n" + labelBot
 	}
+	// Use a style to ensure alignment is preserved for the entire block if needed,
+	// though individual lines are already aligned.
+	axisColumn = lipgloss.NewStyle().Height(graphContentHeight).Align(lipgloss.Right).Render(axisColumn)
 
 	// Combine: stats box (left) | graph (middle) | axis (right)
 	graphWithAxis := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -280,8 +294,15 @@ func (m RootModel) View() string {
 		axisColumn,
 	)
 
+	// Add top and bottom padding inside the Network Activity box
+	graphWithPadding := lipgloss.JoinVertical(lipgloss.Left,
+		"", // Top padding
+		graphWithAxis,
+		"", // Bottom padding
+	)
+
 	// Render single network activity box containing stats + graph
-	graphBox := renderBtopBox("Network Activity", graphWithAxis, rightWidth, graphHeight, ColorNeonCyan, false)
+	graphBox := renderBtopBox("Network Activity", graphWithPadding, rightWidth, graphHeight, ColorNeonCyan, false)
 
 	// --- SECTION 3: DOWNLOAD LIST (Bottom Left) ---
 	// Tab Bar
