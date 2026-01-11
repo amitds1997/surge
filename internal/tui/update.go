@@ -744,6 +744,23 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.SettingsInput.Focus()
 				}
 				return m, nil
+			case "r", "R":
+				// Reset current setting to default
+				defaults := config.DefaultSettings()
+				categories := config.CategoryOrder()
+				currentCategory := categories[m.SettingsActiveTab]
+				key := m.getCurrentSettingKey()
+				m.resetSettingToDefault(currentCategory, key, defaults)
+				return m, nil
+			case "tab":
+				// Open file browser for default_download_dir
+				key := m.getCurrentSettingKey()
+				if key == "default_download_dir" {
+					m.SettingsFileBrowsing = true
+					m.filepicker.CurrentDirectory = m.Settings.General.DefaultDownloadDir
+					return m, m.filepicker.Init()
+				}
+				return m, nil
 			}
 			return m, nil
 		}

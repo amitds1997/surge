@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"surge/internal/config"
@@ -47,8 +48,8 @@ func (m RootModel) viewSettings() string {
 	settingsValues := m.getSettingsValues(currentCategory)
 
 	// Calculate column widths
-	leftWidth := 25
-	rightWidth := width - leftWidth - 6
+	leftWidth := 24
+	rightWidth := width - leftWidth - 5
 
 	// === LEFT COLUMN: Settings List (names only) ===
 	var listLines []string
@@ -75,6 +76,16 @@ func (m RootModel) viewSettings() string {
 		Width(leftWidth).
 		Render(listContent)
 
+	// === VERTICAL SEPARATOR ===
+	separatorHeight := len(settingsMeta)
+	var separatorLines []string
+	for i := 0; i < separatorHeight; i++ {
+		separatorLines = append(separatorLines, "│")
+	}
+	separator := lipgloss.NewStyle().
+		Foreground(ColorGray).
+		Render(strings.Join(separatorLines, "\n"))
+
 	// === RIGHT COLUMN: Value + Description ===
 	var rightContent string
 	if m.SettingsSelectedRow < len(settingsMeta) {
@@ -87,14 +98,20 @@ func (m RootModel) viewSettings() string {
 			valueStr = m.SettingsInput.View()
 		}
 
+		// Show Tab hint for directory settings
+		valueLabel := "Value: "
+		if meta.Key == "default_download_dir" && !m.SettingsIsEditing {
+			valueLabel = "[Tab] Browse: "
+		}
+
 		valueDisplay := lipgloss.NewStyle().
 			Foreground(ColorNeonCyan).
 			Bold(true).
-			Render(valueStr)
+			Render(valueLabel + valueStr)
 
 		descDisplay := lipgloss.NewStyle().
 			Foreground(ColorGray).
-			Width(rightWidth).
+			Width(rightWidth - 2).
 			Render(meta.Description)
 
 		rightContent = valueDisplay + "\n\n" + descDisplay
@@ -102,16 +119,16 @@ func (m RootModel) viewSettings() string {
 
 	rightBox := lipgloss.NewStyle().
 		Width(rightWidth).
-		PaddingLeft(2).
+		PaddingLeft(1).
 		Render(rightContent)
 
 	// === COMBINE COLUMNS ===
-	content := lipgloss.JoinHorizontal(lipgloss.Top, listBox, rightBox)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, listBox, separator, rightBox)
 
 	// === HELP TEXT ===
 	helpText := lipgloss.NewStyle().
 		Foreground(ColorGray).
-		Render("[↑↓] Navigate [Enter] Edit [1-4] Tab [Esc] Save")
+		Render("[Enter] Edit [R] Reset [1-4] Tab [Esc] Save")
 
 	// === FINAL ASSEMBLY ===
 	fullContent := lipgloss.JoinVertical(lipgloss.Left,

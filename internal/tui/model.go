@@ -112,11 +112,12 @@ type RootModel struct {
 	logFocused  bool           // Whether the log viewport is focused
 
 	// Settings
-	Settings            *config.Settings // Application settings
-	SettingsActiveTab   int              // Active category tab (0-3)
-	SettingsSelectedRow int              // Selected setting within current tab
-	SettingsIsEditing   bool             // Whether currently editing a value
-	SettingsInput       textinput.Model  // Input for editing string/int values
+	Settings             *config.Settings // Application settings
+	SettingsActiveTab    int              // Active category tab (0-3)
+	SettingsSelectedRow  int              // Selected setting within current tab
+	SettingsIsEditing    bool             // Whether currently editing a value
+	SettingsInput        textinput.Model  // Input for editing string/int values
+	SettingsFileBrowsing bool             // Whether browsing for a directory
 }
 
 // NewDownloadModel creates a new download model with progress state and reporter
