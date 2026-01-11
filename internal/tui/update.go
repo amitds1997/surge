@@ -56,15 +56,17 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			path = "."
 		}
 
-		// Check for duplicate URL in active downloads
-		for _, d := range m.downloads {
-			if d.URL == msg.URL {
-				m.pendingURL = msg.URL
-				m.pendingPath = path
-				m.pendingFilename = msg.Filename
-				m.duplicateInfo = d.Filename
-				m.state = DuplicateWarningState
-				return m, nil
+		// Check for duplicate URL in active downloads (if warning enabled)
+		if m.Settings.General.WarnOnDuplicate {
+			for _, d := range m.downloads {
+				if d.URL == msg.URL {
+					m.pendingURL = msg.URL
+					m.pendingPath = path
+					m.pendingFilename = msg.Filename
+					m.duplicateInfo = d.Filename
+					m.state = DuplicateWarningState
+					return m, nil
+				}
 			}
 		}
 
@@ -316,7 +318,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focusedInput = 0
 				m.inputs[0].SetValue("")
 				m.inputs[0].Focus()
-				m.inputs[1].SetValue(".")
+				// Use default download dir from settings
+				defaultDir := m.Settings.General.DefaultDownloadDir
+				if defaultDir == "" {
+					defaultDir = "."
+				}
+				m.inputs[1].SetValue(defaultDir)
 				m.inputs[1].Blur()
 				m.inputs[2].SetValue("")
 				m.inputs[2].Blur()
@@ -487,15 +494,17 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				filename := m.inputs[2].Value()
 
-				// Check for duplicate URL in active downloads
-				for _, d := range m.downloads {
-					if d.URL == url {
-						m.pendingURL = url
-						m.pendingPath = path
-						m.pendingFilename = filename
-						m.duplicateInfo = d.Filename
-						m.state = DuplicateWarningState
-						return m, nil
+				// Check for duplicate URL in active downloads (if warning enabled)
+				if m.Settings.General.WarnOnDuplicate {
+					for _, d := range m.downloads {
+						if d.URL == url {
+							m.pendingURL = url
+							m.pendingPath = path
+							m.pendingFilename = filename
+							m.duplicateInfo = d.Filename
+							m.state = DuplicateWarningState
+							return m, nil
+						}
 					}
 				}
 
@@ -676,89 +685,69 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Not editing - handle navigation
 			switch msg.String() {
 			case "esc":
-				m.SettingsInput.Blur()
+				// Save settings and exit
+				_ = config.SaveSettings(m.Settings)
+				m.state = DashboardState
+				return m, nil
+			case "1":
+				m.SettingsActiveTab = 0
+				m.SettingsSelectedRow = 0
+				return m, nil
+			case "2":
+				m.SettingsActiveTab = 1
+				m.SettingsSelectedRow = 0
+				return m, nil
+			case "3":
+				m.SettingsActiveTab = 2
+				m.SettingsSelectedRow = 0
+				return m, nil
+			case "4":
+				m.SettingsActiveTab = 3
+				m.SettingsSelectedRow = 0
+				return m, nil
+			case "tab":
+				m.SettingsActiveTab = (m.SettingsActiveTab + 1) % 4
+				m.SettingsSelectedRow = 0
+				return m, nil
+			case "shift+tab":
+				m.SettingsActiveTab = (m.SettingsActiveTab + 3) % 4
+				m.SettingsSelectedRow = 0
+				return m, nil
+			case "up", "k":
+				if m.SettingsSelectedRow > 0 {
+					m.SettingsSelectedRow--
+				}
+				return m, nil
+			case "down", "j":
+				maxRow := m.getSettingsCount() - 1
+				if m.SettingsSelectedRow < maxRow {
+					m.SettingsSelectedRow++
+				}
 				return m, nil
 			case "enter":
-				// Commit the value
-				categories := config.CategoryOrder()
-				currentCategory := categories[m.SettingsActiveTab]
-				key := m.getCurrentSettingKey()
-				m.setSettingValue(currentCategory, key, m.SettingsInput.Value())
-				m.SettingsIsEditing = false
-				m.SettingsInput.Blur()
+				// Toggle bool or enter edit mode for other types
+				typ := m.getCurrentSettingType()
+				if typ == "bool" {
+					categories := config.CategoryOrder()
+					currentCategory := categories[m.SettingsActiveTab]
+					key := m.getCurrentSettingKey()
+					m.setSettingValue(currentCategory, key, "")
+				} else {
+					// Enter edit mode
+					m.SettingsIsEditing = true
+					// Pre-fill with current value
+					categories := config.CategoryOrder()
+					currentCategory := categories[m.SettingsActiveTab]
+					values := m.getSettingsValues(currentCategory)
+					key := m.getCurrentSettingKey()
+					m.SettingsInput.SetValue(formatSettingValue(values[key], typ))
+					m.SettingsInput.Focus()
+				}
 				return m, nil
-			default:
-				// Pass to text input
-				var cmd tea.Cmd
-				m.SettingsInput, cmd = m.SettingsInput.Update(msg)
-				return m, cmd
 			}
+			return m, nil
 		}
 
-		// Not editing - handle navigation
-		switch msg.String() {
-		case "esc":
-			// Save settings and exit
-			_ = config.SaveSettings(m.Settings)
-			m.state = DashboardState
-			return m, nil
-		case "1":
-			m.SettingsActiveTab = 0
-			m.SettingsSelectedRow = 0
-			return m, nil
-		case "2":
-			m.SettingsActiveTab = 1
-			m.SettingsSelectedRow = 0
-			return m, nil
-		case "3":
-			m.SettingsActiveTab = 2
-			m.SettingsSelectedRow = 0
-			return m, nil
-		case "4":
-			m.SettingsActiveTab = 3
-			m.SettingsSelectedRow = 0
-			return m, nil
-		case "tab":
-			m.SettingsActiveTab = (m.SettingsActiveTab + 1) % 4
-			m.SettingsSelectedRow = 0
-			return m, nil
-		case "shift+tab":
-			m.SettingsActiveTab = (m.SettingsActiveTab + 3) % 4
-			m.SettingsSelectedRow = 0
-			return m, nil
-		case "up", "k":
-			if m.SettingsSelectedRow > 0 {
-				m.SettingsSelectedRow--
-			}
-			return m, nil
-		case "down", "j":
-			maxRow := m.getSettingsCount() - 1
-			if m.SettingsSelectedRow < maxRow {
-				m.SettingsSelectedRow++
-			}
-			return m, nil
-		case "enter":
-			// Toggle bool or enter edit mode for other types
-			typ := m.getCurrentSettingType()
-			if typ == "bool" {
-				categories := config.CategoryOrder()
-				currentCategory := categories[m.SettingsActiveTab]
-				key := m.getCurrentSettingKey()
-				m.setSettingValue(currentCategory, key, "")
-			} else {
-				// Enter edit mode
-				m.SettingsIsEditing = true
-				// Pre-fill with current value
-				categories := config.CategoryOrder()
-				currentCategory := categories[m.SettingsActiveTab]
-				values := m.getSettingsValues(currentCategory)
-				key := m.getCurrentSettingKey()
-				m.SettingsInput.SetValue(formatSettingValue(values[key], typ))
-				m.SettingsInput.Focus()
-			}
-			return m, nil
-		}
-		return m, nil
 	}
 
 	// Propagate messages to progress bars - only update visible ones for performance

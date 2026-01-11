@@ -176,3 +176,38 @@ func SaveSettings(s *Settings) error {
 
 	return os.Rename(tempPath, path)
 }
+
+// ToRuntimeConfig converts Settings to a downloader RuntimeConfig
+// This is used to pass user settings to the download engine
+type RuntimeConfig struct {
+	MaxConnectionsPerHost int
+	MaxGlobalConnections  int
+	UserAgent             string
+	MinChunkSize          int64
+	MaxChunkSize          int64
+	TargetChunkSize       int64
+	WorkerBufferSize      int
+	MaxTaskRetries        int
+	SlowWorkerThreshold   float64
+	SlowWorkerGracePeriod time.Duration
+	StallTimeout          time.Duration
+	SpeedEmaAlpha         float64
+}
+
+// ToRuntimeConfig creates a RuntimeConfig from user Settings
+func (s *Settings) ToRuntimeConfig() *RuntimeConfig {
+	return &RuntimeConfig{
+		MaxConnectionsPerHost: s.Connections.MaxConnectionsPerHost,
+		MaxGlobalConnections:  s.Connections.MaxGlobalConnections,
+		UserAgent:             s.Connections.UserAgent,
+		MinChunkSize:          s.Chunks.MinChunkSize,
+		MaxChunkSize:          s.Chunks.MaxChunkSize,
+		TargetChunkSize:       s.Chunks.TargetChunkSize,
+		WorkerBufferSize:      s.Chunks.WorkerBufferSize,
+		MaxTaskRetries:        s.Performance.MaxTaskRetries,
+		SlowWorkerThreshold:   s.Performance.SlowWorkerThreshold,
+		SlowWorkerGracePeriod: s.Performance.SlowWorkerGracePeriod,
+		StallTimeout:          s.Performance.StallTimeout,
+		SpeedEmaAlpha:         s.Performance.SpeedEmaAlpha,
+	}
+}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-	"strings"
 	"time"
 
 	"surge/internal/config"
@@ -14,13 +13,14 @@ import (
 
 // viewSettings renders the Btop-style settings page
 func (m RootModel) viewSettings() string {
-	width := m.width - 4
-	height := m.height - 4
-	if width < 80 {
-		width = 80
+	// Fixed smaller size for settings modal
+	width := 70
+	height := 18
+	if m.width < width+4 {
+		width = m.width - 4
 	}
-	if height < 20 {
-		height = 20
+	if m.height < height+4 {
+		height = m.height - 4
 	}
 
 	// Get category metadata
@@ -43,46 +43,24 @@ func (m RootModel) viewSettings() string {
 	currentCategory := categories[m.SettingsActiveTab]
 	settingsMeta := metadata[currentCategory]
 
-	// Calculate column widths
-	innerWidth := width - 4
-	leftWidth := int(float64(innerWidth) * 0.40)
-	rightWidth := innerWidth - leftWidth - 3 // -3 for separator
-
 	// Get current settings values
 	settingsValues := m.getSettingsValues(currentCategory)
 
-	// === LEFT COLUMN: Settings List ===
+	// Calculate column widths
+	leftWidth := 25
+	rightWidth := width - leftWidth - 6
+
+	// === LEFT COLUMN: Settings List (names only) ===
 	var listLines []string
 	for i, meta := range settingsMeta {
-		value := settingsValues[meta.Key]
-
-		// Format key and value
-		keyStr := meta.Label
-		valueStr := formatSettingValue(value, meta.Type)
-
-		// Calculate dots between key and value
-		dotsCount := leftWidth - lipgloss.Width(keyStr) - lipgloss.Width(valueStr) - 4
-		if dotsCount < 2 {
-			dotsCount = 2
-		}
-		dots := strings.Repeat(".", dotsCount)
-
-		line := fmt.Sprintf("%s %s %s", keyStr, dots, valueStr)
+		line := meta.Label
 
 		// Highlight selected row
 		if i == m.SettingsSelectedRow {
-			if m.SettingsIsEditing {
-				// Show input field instead of value
-				editLine := fmt.Sprintf("%s: %s", keyStr, m.SettingsInput.View())
-				line = lipgloss.NewStyle().
-					Foreground(ColorNeonCyan).
-					Render(editLine)
-			} else {
-				line = lipgloss.NewStyle().
-					Foreground(ColorNeonPink).
-					Bold(true).
-					Render("> " + line)
-			}
+			line = lipgloss.NewStyle().
+				Foreground(ColorNeonPink).
+				Bold(true).
+				Render("> " + line)
 		} else {
 			line = lipgloss.NewStyle().
 				Foreground(ColorLightGray).
@@ -95,54 +73,48 @@ func (m RootModel) viewSettings() string {
 	listContent := lipgloss.JoinVertical(lipgloss.Left, listLines...)
 	listBox := lipgloss.NewStyle().
 		Width(leftWidth).
-		Height(height - 8). // Account for tabs and help
 		Render(listContent)
 
-	// === RIGHT COLUMN: Description ===
-	var description string
-	if m.SettingsSelectedRow < len(settingsMeta) {
-		meta := settingsMeta[m.SettingsSelectedRow]
-		description = lipgloss.NewStyle().
-			Foreground(ColorLightGray).
-			Width(rightWidth - 2).
-			Render(meta.Description)
-	}
-
-	// Add current value display in description
+	// === RIGHT COLUMN: Value + Description ===
+	var rightContent string
 	if m.SettingsSelectedRow < len(settingsMeta) {
 		meta := settingsMeta[m.SettingsSelectedRow]
 		value := settingsValues[meta.Key]
+
+		// Format value
+		valueStr := formatSettingValue(value, meta.Type)
+		if m.SettingsIsEditing {
+			valueStr = m.SettingsInput.View()
+		}
+
 		valueDisplay := lipgloss.NewStyle().
 			Foreground(ColorNeonCyan).
 			Bold(true).
-			Render(fmt.Sprintf("\n\nCurrent: %s", formatSettingValue(value, meta.Type)))
-		description += valueDisplay
+			Render(valueStr)
+
+		descDisplay := lipgloss.NewStyle().
+			Foreground(ColorGray).
+			Width(rightWidth).
+			Render(meta.Description)
+
+		rightContent = valueDisplay + "\n\n" + descDisplay
 	}
 
-	descBox := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorGray).
-		Padding(1).
+	rightBox := lipgloss.NewStyle().
 		Width(rightWidth).
-		Height(height - 8).
-		Render(description)
-
-	// === SEPARATOR ===
-	separator := lipgloss.NewStyle().
-		Foreground(ColorGray).
-		Render(" │ ")
+		PaddingLeft(2).
+		Render(rightContent)
 
 	// === COMBINE COLUMNS ===
-	content := lipgloss.JoinHorizontal(lipgloss.Top, listBox, separator, descBox)
+	content := lipgloss.JoinHorizontal(lipgloss.Top, listBox, rightBox)
 
 	// === HELP TEXT ===
 	helpText := lipgloss.NewStyle().
 		Foreground(ColorGray).
-		Render("[↑/↓] Navigate  [Enter] Edit/Toggle  [1-4] Category  [Esc] Close")
+		Render("[↑↓] Navigate [Enter] Edit [1-4] Tab [Esc] Save")
 
 	// === FINAL ASSEMBLY ===
 	fullContent := lipgloss.JoinVertical(lipgloss.Left,
-		"",
 		tabBar,
 		"",
 		content,
@@ -150,8 +122,7 @@ func (m RootModel) viewSettings() string {
 		helpText,
 	)
 
-	paddedContent := lipgloss.NewStyle().Padding(0, 2).Render(fullContent)
-	box := renderBtopBox("Settings", paddedContent, width, height, ColorNeonPink, false)
+	box := renderBtopBox("Settings", fullContent, width, height, ColorNeonPink, false)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }
