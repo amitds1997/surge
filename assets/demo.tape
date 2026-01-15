@@ -1,7 +1,8 @@
 # VHS Demo Script for Surge
 # Run: vhs demo.tape
 
-Output demo.gif
+Output assets/demo.gif
+Output assets/demo.mp4
 
 Set Shell "bash"
 Set FontSize 16
@@ -38,6 +39,7 @@ Sleep 5s
 
 # --- Show Download Progress ---
 Sleep 10s
+Screenshot assets/dashboard.png
 
 # --- Open Settings ---
 # Press 's' for settings
@@ -49,6 +51,7 @@ Right
 Sleep 800ms
 Right
 Sleep 800ms
+Screenshot assets/settings.png
 Right
 Sleep 800ms
 
